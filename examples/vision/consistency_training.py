@@ -11,7 +11,7 @@ Deep learning models excel in many image recognition tasks when the data is inde
 and identically distributed (i.i.d.). However, they can suffer from performance
 degradation caused by subtle distribution shifts in the input data  (such as random
 noise, contrast change, and blurring). So, naturally, there arises a question of
-why. As discussed in [A Fourier Perspective on Model Robustness in Computer Vision](https://arxiv.org/pdf/1906.08988.pdf)),
+why. As discussed in [A Fourier Perspective on Model Robustness in Computer Vision](https://arxiv.org/abs/1906.08988)),
 there's no reason for deep learning models to be robust against such shifts. Standard
 model training procedures (such as standard image classification training workflows)
 *don't* enable a model to learn beyond what's fed to it in the form of training data.
@@ -52,7 +52,6 @@ pip install -q tf-models-official tensorflow-addons
 ## Imports and setup
 """
 
-from official.vision.image_classification.augment import RandAugment
 import keras
 from keras import layers
 from keras import ops
@@ -91,7 +90,10 @@ val_x, val_y = x_train[val_samples:], y_train[val_samples:]
 
 # Initialize `RandAugment` object with 2 layers of
 # augmentation transforms and strength of 9.
-augmenter = RandAugment(num_layers=2, magnitude=9)
+augmenter = keras_cv.layers.RandAugment(
+    augmentations_per_image=2,
+    magnitude=9,
+)
 
 """
 For training the teacher model, we will only be using two geometric augmentation
@@ -108,7 +110,7 @@ def preprocess_train(image, label, noisy=True):
     random_crop = keras.layers.RandomCrop(CROP_TO, CROP_TO, seed=seed_gen)
     image = random_crop(image)
     if noisy:
-        image = augmenter.distort(image)
+        image = augmenter(image)
     return image, label
 
 
