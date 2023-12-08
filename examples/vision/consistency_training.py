@@ -53,19 +53,22 @@ pip install -q tf-models-official tensorflow-addons
 """
 
 from official.vision.image_classification.augment import RandAugment
-from tensorflow.keras import layers
+import keras
+from keras import layers
+from keras import ops
 
 import tensorflow as tf
+from tensorflow import data as tf_data
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
 
-tf.random.set_seed(42)
+seed_gen = keras.random.SeedGenerator(seed=42)
 
 """
 ## Define hyperparameters
 """
 
-AUTO = tf.data.AUTOTUNE
+AUTO = tf_data.AUTOTUNE
 BATCH_SIZE = 128
 EPOCHS = 5
 
@@ -76,7 +79,7 @@ RESIZE_TO = 96
 ## Load the CIFAR-10 dataset
 """
 
-(x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+(x_train, y_train), (x_test, y_test) = keras.datasets.cifar10.load_data()
 
 val_samples = 49500
 new_train_x, new_y_train = x_train[: val_samples + 1], y_train[: val_samples + 1]
@@ -97,24 +100,26 @@ transforms: random horizontal flip and random crop.
 
 
 def preprocess_train(image, label, noisy=True):
-    image = tf.image.random_flip_left_right(image)
+    random_flip = keras.layers.RandomFlip(mode="horizontal", seed=seed_gen)
+    image = random_flip(image)
     # We first resize the original image to a larger dimension
     # and then we take random crops from it.
-    image = tf.image.resize(image, [RESIZE_TO, RESIZE_TO])
-    image = tf.image.random_crop(image, [CROP_TO, CROP_TO, 3])
+    image = ops.image.resize(image, (RESIZE_TO, RESIZE_TO))
+    random_crop = keras.layers.RandomCrop(CROP_TO, CROP_TO, seed=seed_gen)
+    image = random_crop(image)
     if noisy:
         image = augmenter.distort(image)
     return image, label
 
 
 def preprocess_test(image, label):
-    image = tf.image.resize(image, [CROP_TO, CROP_TO])
+    image = ops.image.resize(image, (CROP_TO, CROP_TO))
     return image, label
 
 
-train_ds = tf.data.Dataset.from_tensor_slices((new_train_x, new_y_train))
-validation_ds = tf.data.Dataset.from_tensor_slices((val_x, val_y))
-test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test))
+train_ds = tf_data.Dataset.from_tensor_slices((new_train_x, new_y_train))
+validation_ds = tf_data.Dataset.from_tensor_slices((val_x, val_y))
+test_ds = tf_data.Dataset.from_tensor_slices((x_test, y_test))
 
 """
 We make sure `train_clean_ds` and `train_noisy_ds` are shuffled using the *same* seed to
@@ -151,7 +156,7 @@ test_ds = (
 )
 
 # This dataset will be used to train the second model.
-consistency_training_ds = tf.data.Dataset.zip((train_clean_ds, train_noisy_ds))
+consistency_training_ds = tf_data.Dataset.zip((train_clean_ds, train_noisy_ds))
 
 """
 ## Visualize the datasets
@@ -179,12 +184,12 @@ We now define our model building utility. Our model is based on the [ResNet50V2 
 
 
 def get_training_model(num_classes=10):
-    resnet50_v2 = tf.keras.applications.ResNet50V2(
+    resnet50_v2 = keras.applications.ResNet50V2(
         weights=None,
         include_top=False,
         input_shape=(CROP_TO, CROP_TO, 3),
     )
-    model = tf.keras.Sequential(
+    model = keras.Sequential(
         [
             layers.Input((CROP_TO, CROP_TO, 3)),
             layers.Rescaling(scale=1.0 / 127.5, offset=-1),
@@ -216,10 +221,8 @@ part but for this example, we will use [Stochastic Weight Averaging](https://arx
 """
 
 # Define the callbacks.
-reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(patience=3)
-early_stopping = tf.keras.callbacks.EarlyStopping(
-    patience=10, restore_best_weights=True
-)
+reduce_lr = keras.callbacks.ReduceLROnPlateau(patience=3)
+early_stopping = keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
 
 # Initialize SWA from tf-hub.
 SWA = tfa.optimizers.SWA
@@ -229,8 +232,8 @@ teacher_model = get_training_model()
 teacher_model.load_weights("initial_teacher_model.h5")
 teacher_model.compile(
     # Notice that we are wrapping our optimizer within SWA
-    optimizer=SWA(tf.keras.optimizers.Adam()),
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    optimizer=SWA(keras.optimizers.Adam()),
+    loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
     metrics=["accuracy"],
 )
 history = teacher_model.fit(
@@ -253,7 +256,7 @@ For this part, we will borrow the `Distiller` class from [this Keras Example](ht
 
 # Majority of the code is taken from:
 # https://keras.io/examples/vision/knowledge_distillation/
-class SelfTrainer(tf.keras.Model):
+class SelfTrainer(keras.Model):
     def __init__(self, student, teacher):
         super().__init__()
         self.student = student
@@ -290,8 +293,8 @@ class SelfTrainer(tf.keras.Model):
             # Compute losses
             student_loss = self.student_loss_fn(y, student_predictions)
             distillation_loss = self.distillation_loss_fn(
-                tf.nn.softmax(teacher_predictions / self.temperature, axis=1),
-                tf.nn.softmax(student_predictions / self.temperature, axis=1),
+                ops.softmax(teacher_predictions / self.temperature, axis=1),
+                ops.softmax(student_predictions / self.temperature, axis=1),
             )
             total_loss = (student_loss + distillation_loss) / 2
 
@@ -303,9 +306,7 @@ class SelfTrainer(tf.keras.Model):
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
         # Update the metrics configured in `compile()`
-        self.compiled_metrics.update_state(
-            y, tf.nn.softmax(student_predictions, axis=1)
-        )
+        self.compiled_metrics.update_state(y, ops.softmax(student_predictions, axis=1))
 
         # Return a dict of performance
         results = {m.name: m.result() for m in self.metrics}
@@ -320,7 +321,7 @@ class SelfTrainer(tf.keras.Model):
         y_prediction = self.student(x, training=False)
 
         # Update the metrics
-        self.compiled_metrics.update_state(y, tf.nn.softmax(y_prediction, axis=1))
+        self.compiled_metrics.update_state(y, ops.softmax(y_prediction, axis=1))
 
         # Return a dict of performance
         results = {m.name: m.result() for m in self.metrics}
@@ -339,10 +340,10 @@ average following Noisy Student Training**.
 
 # Define the callbacks.
 # We are using a larger decay factor to stabilize the training.
-reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+reduce_lr = keras.callbacks.ReduceLROnPlateau(
     patience=3, factor=0.5, monitor="val_accuracy"
 )
-early_stopping = tf.keras.callbacks.EarlyStopping(
+early_stopping = keras.callbacks.EarlyStopping(
     patience=10, restore_best_weights=True, monitor="val_accuracy"
 )
 
@@ -352,8 +353,8 @@ self_trainer.compile(
     # Notice we are *not* using SWA here.
     optimizer="adam",
     metrics=["accuracy"],
-    student_loss_fn=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-    distillation_loss_fn=tf.keras.losses.KLDivergence(),
+    student_loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    distillation_loss_fn=keras.losses.KLDivergence(),
     temperature=10,
 )
 history = self_trainer.fit(
