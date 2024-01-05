@@ -278,6 +278,7 @@ Final dict should be:
 def load_dataset(image_path, classes, bbox):
     # Read Image
     image = keras.utils.load_img(image_path)
+    image = keras.utils.img_to_array(image)
     bounding_boxes = {
         "classes": ops.cast(classes, dtype="float32"),
         "boxes": bbox,
