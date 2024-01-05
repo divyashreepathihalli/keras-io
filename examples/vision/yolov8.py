@@ -42,7 +42,8 @@ from tqdm.auto import tqdm
 import xml.etree.ElementTree as ET
 
 import tensorflow as tf
-from tensorflow import keras
+import keras
+from keras import ops
 
 import keras_cv
 from keras_cv import bounding_box
@@ -69,7 +70,10 @@ By narrowing down the dataset to these specific classes, we can concentrate on b
 robust object detection model that can accurately identify and classify these important
 objects.
 """
-
+"""shell
+!gdown 19CWdNL3ePq9XIgMeb_RjA641iGra3nWm
+!unzip data.zip
+"""
 """
 The TensorFlow Datasets library provides a convenient way to download and use various
 datasets, including the object detection dataset. This can be a great option for those
@@ -115,8 +119,8 @@ class_ids = [
 class_mapping = dict(zip(range(len(class_ids)), class_ids))
 
 # Path to images and annotations
-path_images = "/kaggle/input/dataset/data/images/"
-path_annot = "/kaggle/input/dataset/data/annotations/"
+path_images = "./data/images/"
+path_annot = "./data/annotations/"
 
 # Get all XML file paths in path_annot and sort them
 xml_files = sorted(
@@ -271,20 +275,14 @@ Final dict should be:
 """
 
 
-def load_image(image_path):
-    image = tf.io.read_file(image_path)
-    image = tf.image.decode_jpeg(image, channels=3)
-    return image
-
-
 def load_dataset(image_path, classes, bbox):
     # Read Image
-    image = load_image(image_path)
+    image = keras.utils.load_img(image_path)
     bounding_boxes = {
-        "classes": tf.cast(classes, dtype=tf.float32),
+        "classes": ops.cast(classes, dtype="float32"),
         "boxes": bbox,
     }
-    return {"images": tf.cast(image, tf.float32), "bounding_boxes": bounding_boxes}
+    return {"images": ops.cast(image, "float32"), "bounding_boxes": bounding_boxes}
 
 
 """
@@ -544,7 +542,7 @@ bounding boxes.
 
 """
 
-optimizer = tf.keras.optimizers.Adam(
+optimizer = keras.optimizers.Adam(
     learning_rate=LEARNING_RATE,
     global_clipnorm=GLOBAL_CLIPNORM,
 )
